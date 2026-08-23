@@ -1,190 +1,202 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional
-import chromadb
-import fitz
+"""FastAPI backend for the NVIDIA Document Q&A Agent."""
+
 import os
 import tempfile
 import warnings
-warnings.filterwarnings("ignore")
 
-from openai import OpenAI
-from dotenv import load_dotenv
+import fitz
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langgraph.graph import StateGraph, END
+from pydantic import BaseModel
 
-import sys
-sys.path.append(os.path.dirname(__file__))
-from agent_state import AgentState
-from agent_nodes import router_node, retriever_node, generator_node, meta_node, clarifier_node
+from agent_graph import build_agent, initial_state
+from config import settings
+from core import store
+from core.nim_client import embed
 
-load_dotenv()
+warnings.filterwarnings("ignore")
 
 app = FastAPI(title="NVIDIA Document Agent API")
 
-# Allow React frontend to call this API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-client = OpenAI(
-    base_url="https://integrate.api.nvidia.com/v1",
-    api_key=os.getenv("NVIDIA_API_KEY")
-)
-
-# ── Build LangGraph agent ─────────────────────────────────────
-def route_decision(state: AgentState) -> str:
-    d = state["decision"]
-    return "meta" if d == "meta" else "clarifier" if d == "clarify" else "retriever"
-
-def build_agent():
-    g = StateGraph(AgentState)
-    g.add_node("router",    router_node)
-    g.add_node("retriever", retriever_node)
-    g.add_node("generator", generator_node)
-    g.add_node("meta",      meta_node)
-    g.add_node("clarifier", clarifier_node)
-    g.set_entry_point("router")
-    g.add_conditional_edges("router", route_decision,
-        {"retriever":"retriever","meta":"meta","clarifier":"clarifier"})
-    g.add_edge("retriever", "generator")
-    g.add_edge("generator", END)
-    g.add_edge("meta",      END)
-    g.add_edge("clarifier", END)
-    return g.compile()
-
 agent = build_agent()
 
-# ── Request/Response models ───────────────────────────────────
+GRN = "#76B900"
+PURPLE = "#a855f7"
+AMBER = "#f59e0b"
+
+
+# ── Request/response models ────────────────────────────────────
 class ChatRequest(BaseModel):
     question: str
-    chat_history: List[dict] = []
+    chat_history: list[dict] = []
+
 
 class ChatResponse(BaseModel):
     answer: str
     decision: str
-    chunks: List[str]
+    chunks: list[str]
     confidence: float
-    trace: List[dict]
+    trace: list[dict]
+
 
 class UploadResponse(BaseModel):
     chunk_count: int
     filename: str
     message: str
 
-# ── Routes ────────────────────────────────────────────────────
+
+# ── Routes ─────────────────────────────────────────────────────
 @app.get("/")
 def root():
     return {"status": "NVIDIA Document Agent API running"}
 
+
+@app.get("/status")
+def status():
+    try:
+        n = store.count()
+        return {"loaded": n > 0, "chunk_count": n}
+    except Exception as e:  # noqa: BLE001 - health check must never 500
+        # Printed rather than swallowed: without this, a broken ChromaDB
+        # looks identical to "no document uploaded yet".
+        print(f"[Status] {e}")
+        return {"loaded": False, "chunk_count": 0}
+
+
 @app.post("/upload", response_model=UploadResponse)
 async def upload_pdf(file: UploadFile = File(...)):
-    """Upload and index a PDF file."""
-    if not file.filename.endswith(".pdf"):
+    """Upload and index a PDF.
+
+    Phase 1: this is declared `async` but embeds chunks with blocking calls,
+    so it holds the event loop for the entire upload and every other request
+    (including /status) stalls. Fixed by dropping async / using to_thread,
+    and by batching the embedding calls.
+    """
+    if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files allowed")
 
-    # Save temp file
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-        content = await file.read()
-        tmp.write(content)
-        tmp_path = tmp.name
+    content = await file.read()
+    if len(content) > settings.max_upload_bytes:
+        raise HTTPException(status_code=413, detail="File too large")
 
-    # Extract text
-    doc = fitz.open(tmp_path)
-    full_text = ""
-    for i, page in enumerate(doc):
-        full_text += f"\n--- Page {i+1} ---\n{page.get_text()}"
-    doc.close()
-    os.unlink(tmp_path)
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
 
-    # Chunk
+        doc = fitz.open(tmp_path)
+        full_text = "".join(
+            f"\n--- Page {i + 1} ---\n{page.get_text()}" for i, page in enumerate(doc)
+        )
+        doc.close()
+    except Exception as e:  # noqa: BLE001 - fitz raises many types on bad PDFs
+        raise HTTPException(status_code=400, detail=f"Could not read PDF: {e}") from e
+    finally:
+        # The original unlinked before this point, so a corrupt PDF leaked
+        # the temp file.
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
     chunks = RecursiveCharacterTextSplitter(
-        chunk_size=500, chunk_overlap=50
+        chunk_size=settings.chunk_size,
+        chunk_overlap=settings.chunk_overlap,
+        length_function=len,
     ).split_text(full_text)
 
-    # Store in ChromaDB
-    db = chromadb.PersistentClient(path="./chroma_db")
-    try:    db.delete_collection("nvidia_docs")
-    except: pass
-    col = db.get_or_create_collection("nvidia_docs")
-
+    col = store.reset_collection()
     for i, chunk in enumerate(chunks):
-        emb = client.embeddings.create(
-            model="nvidia/nv-embedqa-e5-v5",
-            input=chunk, encoding_format="float",
-            extra_body={"input_type":"passage","truncate":"NONE"}
-        ).data[0].embedding
         col.add(
             ids=[f"chunk_{i}"],
-            embeddings=[emb],
+            embeddings=[embed(chunk, input_type="passage")],
             documents=[chunk],
-            metadatas=[{"chunk_index": i, "source": file.filename}]
+            metadatas=[{"chunk_index": i, "source": file.filename}],
         )
 
     return UploadResponse(
         chunk_count=len(chunks),
         filename=file.filename,
-        message=f"Successfully indexed {len(chunks)} chunks"
+        message=f"Successfully indexed {len(chunks)} chunks",
     )
 
+
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    """Send a question and get a grounded answer."""
+async def chat_endpoint(request: ChatRequest):
+    """Answer a question against the indexed document."""
+    history = request.chat_history[-settings.max_history_messages :]
+    result = agent.invoke(initial_state(request.question, history))
 
-    state = {
-        "question":             request.question,
-        "retrieved_chunks":     [],
-        "answer":               "",
-        "decision":             "",
-        "iterations":           0,
-        "chat_history":         request.chat_history[-12:],
-        "retrieval_confidence": 0.0
-    }
+    return ChatResponse(
+        answer=result["answer"],
+        decision=result["decision"],
+        chunks=result["retrieved_chunks"],
+        confidence=result["retrieval_confidence"],
+        trace=_build_trace(result["decision"], result["retrieval_confidence"]),
+    )
 
-    result   = agent.invoke(state)
-    answer   = result["answer"]
-    decision = result["decision"]
-    chunks   = result["retrieved_chunks"]
-    conf     = result["retrieval_confidence"]
 
-    # Build trace
-    GRN = "#76B900"
-    trace = [{"icon":"▶","label":"Router","value":decision.upper(),"color":GRN}]
+def _build_trace(decision: str, confidence: float) -> list[dict]:
+    """Build the Evidence panel trace.
+
+    Phase 5: this is reconstructed from the final decision rather than
+    logged by the nodes as they run. It happens to be accurate only because
+    the graph is simple enough that the path is inferable from the decision.
+    """
+    trace = [{"icon": "▶", "label": "Router", "value": decision.upper(), "color": GRN}]
+
     if decision == "retrieve":
         trace += [
-            {"icon":"◎","label":"Vector search","value":"Top-5 chunks retrieved","color":GRN},
-            {"icon":"◎","label":"Confidence","value":f"{conf:.2f}","color":GRN},
-            {"icon":"◉","label":"Generator","value":"Answer produced","color":GRN},
+            {
+                "icon": "◎",
+                "label": "Vector search",
+                "value": f"Top-{settings.final_top_k} chunks retrieved",
+                "color": GRN,
+            },
+            {
+                "icon": "◎",
+                "label": "Confidence",
+                "value": f"{confidence:.2f}",
+                "color": GRN,
+            },
+            {
+                "icon": "◉",
+                "label": "Generator",
+                "value": "Answer produced",
+                "color": GRN,
+            },
         ]
     elif decision == "meta":
         trace += [
-            {"icon":"◎","label":"Memory","value":"Conversation history used","color":"#a855f7"},
-            {"icon":"◉","label":"Summary","value":"Generated from context","color":"#a855f7"},
+            {
+                "icon": "◎",
+                "label": "Memory",
+                "value": "Conversation history used",
+                "color": PURPLE,
+            },
+            {
+                "icon": "◉",
+                "label": "Summary",
+                "value": "Generated from context",
+                "color": PURPLE,
+            },
         ]
     else:
         trace += [
-            {"icon":"◉","label":"Clarifier","value":"Asking for more detail","color":"#f59e0b"},
+            {
+                "icon": "◉",
+                "label": "Clarifier",
+                "value": "Asking for more detail",
+                "color": AMBER,
+            }
         ]
 
-    return ChatResponse(
-        answer=answer,
-        decision=decision,
-        chunks=chunks,
-        confidence=conf,
-        trace=trace
-    )
-
-@app.get("/status")
-def status():
-    """Check if database has documents loaded."""
-    try:
-        db = chromadb.PersistentClient(path="./chroma_db")
-        col = db.get_or_create_collection("nvidia_docs")
-        return {"loaded": col.count() > 0, "chunk_count": col.count()}
-    except:
-        return {"loaded": False, "chunk_count": 0}
+    return trace

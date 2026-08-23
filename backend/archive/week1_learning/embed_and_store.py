@@ -7,6 +7,10 @@ import os
 import warnings
 warnings.filterwarnings("ignore")
 
+from pathlib import Path
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+TEST_PDF = BACKEND_DIR / "eval" / "datasets" / "test.pdf"
+
 load_dotenv()
 
 client = OpenAI(
@@ -55,7 +59,7 @@ def store_chunks(chunks, collection):
             ids=[f"chunk_{i}"],
             embeddings=[embedding],
             documents=[chunk],
-            metadatas=[{"chunk_index": i, "source": "test.pdf"}]
+            metadatas=[{"chunk_index": i, "source": "TEST_PDF"}]
         )
         
         # Progress update every 10 chunks
@@ -79,7 +83,7 @@ if __name__ == "__main__":
     
     # Load and chunk PDF
     print("Loading PDF...")
-    text = load_pdf("test.pdf")
+    text = load_pdf("TEST_PDF")
     
     print("Chunking text...")
     chunks = chunk_text(text)

@@ -1,4 +1,5 @@
-from typing import TypedDict, List, Optional
+from typing import TypedDict
+
 
 class AgentState(TypedDict):
     """
@@ -9,7 +10,7 @@ class AgentState(TypedDict):
     question: str
     
     # Retrieved chunks from ChromaDB
-    retrieved_chunks: List[str]
+    retrieved_chunks: list[str]
     
     # The final generated answer
     answer: str
@@ -21,7 +22,7 @@ class AgentState(TypedDict):
     iterations: int
     
     # Conversation history
-    chat_history: List[dict]
+    chat_history: list[dict]
     
     # Whether the retrieval found relevant content
     retrieval_confidence: float

@@ -1,6 +1,9 @@
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import fitz
 import os
+from pathlib import Path
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+TEST_PDF = BACKEND_DIR / "eval" / "datasets" / "test.pdf"
 
 def load_pdf(file_path):
     doc = fitz.open(file_path)
@@ -31,7 +34,7 @@ def chunk_text(text, chunk_size=500, chunk_overlap=50):
 
 if __name__ == "__main__":
     print("Loading PDF...")
-    text = load_pdf("test.pdf")
+    text = load_pdf("TEST_PDF")
     
     print("Chunking text...")
     chunks = chunk_text(text)

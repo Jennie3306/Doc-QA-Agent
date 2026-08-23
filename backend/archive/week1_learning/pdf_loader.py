@@ -1,5 +1,8 @@
 import fitz  # PyMuPDF
 import os
+from pathlib import Path
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+TEST_PDF = BACKEND_DIR / "eval" / "datasets" / "test.pdf"
 
 def load_pdf(file_path):
     """Load a PDF and extract all text page by page."""
@@ -23,7 +26,7 @@ def load_pdf(file_path):
 
 
 if __name__ == "__main__":
-    text = load_pdf("test.pdf")
+    text = load_pdf("TEST_PDF")
     
     if text:
         print(f"Total characters extracted: {len(text)}")

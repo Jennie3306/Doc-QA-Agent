@@ -1,0 +1,27 @@
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+xfail_strict = true
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning",
+]
+[tool.ruff]
+line-length = 100
+exclude = ["archive", "venv", ".venv"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes - unused imports, undefined names
+    "I",    # isort - import ordering
+    "B",    # bugbear - likely bugs
+    "UP",   # pyupgrade
+    "BLE",  # blind except
+]
+ignore = [
+    "B008",  # FastAPI's File()/Depends() belong in argument defaults
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]

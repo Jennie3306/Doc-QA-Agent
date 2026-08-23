@@ -3,9 +3,11 @@ venv/
 *.env
 !.env.example
 __pycache__/
+.pytest_cache/
 chroma_db/
 chroma_db_test/
 *.pyc
 dist/
 .DS_Store
 *.pkl
+.ruff_cache/
