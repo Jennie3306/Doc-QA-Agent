@@ -1,5 +1,11 @@
 venv/
 .env
+*.env
+!.env.example
 __pycache__/
 chroma_db/
+chroma_db_test/
 *.pyc
+dist/
+.DS_Store
+*.pkl
