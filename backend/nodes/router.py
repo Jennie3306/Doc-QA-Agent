@@ -1,10 +1,17 @@
 from agent_state import AgentState
 
-META_KEYWORDS = ["summarize", "summary", "bullet", "recap",
-                 "what did you", "told me", "tldr", "wrap up"]
+META_KEYWORDS = [
+    "summarize",
+    "summary",
+    "bullet",
+    "recap",
+    "what did you",
+    "told me",
+    "tldr",
+    "wrap up",
+]
 
-CLARIFY_KEYWORDS = ["what do you mean", "can you explain",
-                    "i don't understand", "clarify"]
+CLARIFY_KEYWORDS = ["what do you mean", "can you explain", "i don't understand", "clarify"]
 
 # ⚠️ Known issues, fixed in Phase 4:
 #   - "told me" misroutes "What did the paper tell me about X?" to meta

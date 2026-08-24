@@ -4,10 +4,7 @@ from agent_state import AgentState
 from config import settings
 from core.nim_client import chat
 
-NO_HISTORY = (
-    "We haven't discussed anything yet. "
-    "Please ask me a question about the document first!"
-)
+NO_HISTORY = "We haven't discussed anything yet. Please ask me a question about the document first!"
 
 SYSTEM_PROMPT = """You are a helpful assistant.
 The user wants you to summarize or reflect on the conversation so far.
@@ -21,7 +18,7 @@ def meta_node(state: AgentState) -> AgentState:
         return {**state, "answer": NO_HISTORY}
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages.extend(chat_history[-settings.history_window_meta:])
+    messages.extend(chat_history[-settings.history_window_meta :])
     messages.append({"role": "user", "content": state["question"]})
 
     try:

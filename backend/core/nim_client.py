@@ -48,9 +48,7 @@ def embed_batch(texts: list[str], input_type: str) -> list[list[float]]:
         out.extend(d.embedding for d in ordered)
 
     if len(out) != len(texts):
-        raise RuntimeError(
-            f"Embedding count mismatch: got {len(out)} for {len(texts)} texts"
-        )
+        raise RuntimeError(f"Embedding count mismatch: got {len(out)} for {len(texts)} texts")
 
     return out
 

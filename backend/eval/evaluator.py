@@ -5,6 +5,7 @@
 ⚠️ Phase 3: keyword matching is a weak proxy — replaced by
    Recall@k / MRR (retrieval) and RAGAS faithfulness (generation).
 """
+
 import warnings
 
 from core import store
@@ -65,9 +66,7 @@ def retrieve_chunks(question: str, collection, top_k: int = TOP_K) -> list[str]:
 
 
 def generate_answer(question: str, chunks: list[str]) -> str:
-    context = "\n\n---\n\n".join(
-        f"Chunk {i+1}:\n{chunk}" for i, chunk in enumerate(chunks)
-    )
+    context = "\n\n---\n\n".join(f"Chunk {i + 1}:\n{chunk}" for i, chunk in enumerate(chunks))
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"},
@@ -90,7 +89,7 @@ def evaluate() -> None:
         expected_keywords = test["expected_keywords"]
         should_answer = test["should_answer"]
 
-        print(f"\nTest {i+1}: {question}")
+        print(f"\nTest {i + 1}: {question}")
         print("-" * 40)
 
         chunks = retrieve_chunks(question, collection, top_k=TOP_K)
@@ -100,9 +99,7 @@ def evaluate() -> None:
         print(f"Answer: {answer[:200]}...")
 
         if should_answer:
-            keywords_found = [
-                k for k in expected_keywords if k.lower() in answer_lower
-            ]
+            keywords_found = [k for k in expected_keywords if k.lower() in answer_lower]
             if keywords_found and "could not find" not in answer_lower:
                 print(f"PASS — keywords found: {keywords_found}")
                 passed += 1

@@ -1,4 +1,9 @@
-"""The single definition of the LangGraph agent."""
+"""The single definition of the LangGraph agent.
+
+build_agent() and route_decision() used to exist in two divergent copies
+(main.py and langgraph_agent.py), so a change to one path silently made the
+API and the CLI behave differently.
+"""
 
 from langgraph.graph import END, StateGraph
 
@@ -53,14 +58,17 @@ def initial_state(
     """The one place agent state is constructed.
 
     tests/test_graph.py asserts these keys match AgentState exactly, so
-    adding a field without updating here fails a test instead of raising
-    KeyError mid-conversation.
+    adding a field without updating here fails a test instead of surfacing
+    as a KeyError mid-conversation.
     """
     return {
         "question": question,
+        "rewritten_question": "",
         "session_id": session_id,
         "retrieved_chunks": [],
         "chunk_scores": [],
+        "chunk_pages": [],
+        "rerank_scores": [],
         "retrieval_confidence": 0.0,
         "answer": "",
         "decision": "",

@@ -34,7 +34,7 @@ def get_collection(session_id: str | None = None):
 
     NOTE: this metadata only applies when the collection is CREATED. An
     existing L2 collection keeps using L2 no matter what is passed here,
-    which is why Phase 1 requires deleting chroma_db and re-ingesting.
+    which is why the switch required deleting chroma_db and re-ingesting.
     """
     return _db.get_or_create_collection(
         name=collection_name(session_id),
@@ -43,16 +43,27 @@ def get_collection(session_id: str | None = None):
 
 
 def reset_collection(session_id: str | None = None):
-    """Drop and recreate one session's collection.
+    """Drop and recreate one session's collection, dense and sparse.
 
     Scoped per session so that on a public deployment one user's upload no
     longer wipes the document another user is chatting with.
     """
+    # Imported here, not at module level: sparse.py imports store for
+    # collection_name(), so a top-level import would be circular.
+    from core import sparse
+
     name = collection_name(session_id)
     try:
         _db.delete_collection(name)
     except NotFoundError:
         pass  # first upload for this session
+
+    # Drop the BM25 index too. Leaving it behind would leave hybrid search
+    # returning chunks from the previous document - and unlike a stale
+    # vector store, that failure is silent: the chunks look plausible,
+    # they are simply from a file the user already replaced.
+    sparse.delete(session_id)
+
     return _db.get_or_create_collection(
         name=name,
         metadata={"hnsw:space": "cosine"},

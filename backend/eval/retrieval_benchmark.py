@@ -3,6 +3,7 @@
 ⚠️ Phase 3: keyword-in-chunk is a coarse proxy. Replaced by Recall@k
    and MRR against gold page labels once eval/datasets/qa.jsonl exists.
 """
+
 import warnings
 
 from core import store

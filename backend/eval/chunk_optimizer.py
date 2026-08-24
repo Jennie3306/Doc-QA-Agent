@@ -51,9 +51,7 @@ CONFIGS = [
 
 def load_pdf(path: Path) -> str:
     doc = fitz.open(str(path))
-    text = "".join(
-        f"\n--- Page {i + 1} ---\n{page.get_text()}" for i, page in enumerate(doc)
-    )
+    text = "".join(f"\n--- Page {i + 1} ---\n{page.get_text()}" for i, page in enumerate(doc))
     doc.close()
     return text
 

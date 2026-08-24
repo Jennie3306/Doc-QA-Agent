@@ -1,8 +1,6 @@
 """FastAPI backend for the NVIDIA Document Q&A Agent."""
 
 import asyncio
-import os
-import tempfile
 import warnings
 
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
@@ -42,7 +40,8 @@ class ChatResponse(BaseModel):
     answer: str
     decision: str
     chunks: list[str]
-    chunk_scores: list[float]  # real similarity per chunk - Phase 1
+    chunk_scores: list[float]  # real similarity per chunk
+    chunk_pages: list[int]
     confidence: float
     trace: list[dict]
 
@@ -88,28 +87,15 @@ async def upload_pdf(
     if not ingest.looks_like_pdf(content):
         raise HTTPException(status_code=400, detail="File is not a valid PDF")
 
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
-
-        text = ingest.extract_text(tmp_path)
-    except Exception as e:  # noqa: BLE001 - fitz raises many types on bad PDFs
-        raise HTTPException(status_code=400, detail=f"Could not read PDF: {e}") from e
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-
-    # to_thread is the Phase 1 async fix. ingest_text() makes blocking
+    # to_thread is the Phase 1 async fix. ingest_pdf_bytes() makes blocking
     # network calls; running it directly on the event loop froze every
     # other request - including /status - for the whole upload.
     try:
-        n = await asyncio.to_thread(
-            ingest.ingest_text, text, file.filename, x_session_id
-        )
+        n = await asyncio.to_thread(ingest.ingest_pdf_bytes, content, file.filename, x_session_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:  # noqa: BLE001 - fitz raises many types on bad PDFs
+        raise HTTPException(status_code=400, detail=f"Could not read PDF: {e}") from e
 
     return UploadResponse(
         chunk_count=n,
@@ -142,6 +128,7 @@ async def chat_endpoint(
         decision=result["decision"],
         chunks=result["retrieved_chunks"],
         chunk_scores=result["chunk_scores"],
+        chunk_pages=result["chunk_pages"],
         confidence=result["retrieval_confidence"],
         trace=_build_trace(
             result["decision"],
@@ -168,8 +155,7 @@ def _trim_history(history: list[dict]) -> list[dict]:
     """
     trimmed = history[-settings.max_history_messages :]
     return [
-        {**m, "content": str(m.get("content", ""))[: settings.max_message_chars]}
-        for m in trimmed
+        {**m, "content": str(m.get("content", ""))[: settings.max_message_chars]} for m in trimmed
     ]
 
 

@@ -34,8 +34,7 @@ EVAL_QUESTIONS = [
     },
     {
         "question": "How many tokens was Falcon-180B trained on?",
-        "reference": "Falcon-180B was trained on 3,500 billion tokens "
-        "(3.5 trillion tokens).",
+        "reference": "Falcon-180B was trained on 3,500 billion tokens (3.5 trillion tokens).",
     },
     {
         "question": "What is the license for Falcon-7B?",

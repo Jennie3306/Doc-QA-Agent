@@ -20,6 +20,7 @@ def test_chunk_overlap_smaller_than_size():
 def test_api_key_present():
     assert settings.nvidia_api_key.startswith("nvapi-")
 
+
 def test_settings_has_fields_used_by_main():
     """main.py reads these at request time - a missing field only surfaces
     as a 500 during an upload, which is far too late to find out."""

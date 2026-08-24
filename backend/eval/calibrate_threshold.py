@@ -105,9 +105,7 @@ def run() -> None:
     collection = store.get_collection()
     n = collection.count()
     if n == 0:
-        raise SystemExit(
-            "Collection is empty. Run: python -m core.ingest eval/datasets/test.pdf"
-        )
+        raise SystemExit("Collection is empty. Run: python -m core.ingest eval/datasets/test.pdf")
 
     print("=" * 62)
     print("  Confidence Threshold Calibration")

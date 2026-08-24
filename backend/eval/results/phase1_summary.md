@@ -10,6 +10,9 @@
 | Upload | block event loop | `asyncio.to_thread` |
 | Collection | một cái dùng chung | một cái mỗi session |
 
+> Số liệu tại thời điểm cuối Phase 1 (471 chunks, chunking phẳng).
+> Phase 2 đổi sang page-aware chunking → 468 chunks. Xem `ablation.md`.
+
 ## Threshold calibration
 Xem `threshold_calibration.md`. Kết luận: threshold tách được câu lạc đề
 (out_easy median 0.284) khỏi câu thật (in_scope median 0.560), nhưng

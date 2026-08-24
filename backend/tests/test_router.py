@@ -41,6 +41,7 @@ def test_explicit_clarify_keyword():
 
 # ── Known defects, fixed in Phase 4 ────────────────────────────
 
+
 @pytest.mark.xfail(reason="'can you explain' keyword hijacks valid questions — Phase 4")
 def test_explain_a_concept_should_retrieve():
     # A very natural way to ask a document question, but CLARIFY_KEYWORDS
