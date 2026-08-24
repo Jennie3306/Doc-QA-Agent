@@ -14,9 +14,10 @@ def generator_node(state: AgentState) -> AgentState:
     chunks = state["retrieved_chunks"]
     confidence = state["retrieval_confidence"]
 
-    # ⚠️ Phase 1: threshold is 0.05, which in practice never fires.
-    #    Calibrated empirically in eval/calibrate_threshold.py.
+    # Threshold calibrated in eval/calibrate_threshold.py against the
+    # measured gap between in-scope and out-of-scope top-1 scores.
     if confidence < settings.confidence_threshold:
+        print(f"[Generator] Below threshold ({confidence:.3f}) - fallback")
         return {**state, "answer": FALLBACK_LOW_CONFIDENCE}
 
     context = "\n\n---\n\n".join(

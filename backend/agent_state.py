@@ -1,28 +1,16 @@
+"""Shared state passed between LangGraph nodes."""
+
 from typing import TypedDict
 
 
 class AgentState(TypedDict):
-    """
-    The state that gets passed between every node in the agent graph.
-    Think of it as the agent's working memory at each step.
-    """
-    # The user's original question
     question: str
-    
-    # Retrieved chunks from ChromaDB
+    session_id: str
+
     retrieved_chunks: list[str]
-    
-    # The final generated answer
+    chunk_scores: list[float]  # real per-chunk similarity, one per chunk
+    retrieval_confidence: float  # top-1 score
+
     answer: str
-    
-    # What the agent decided to do
-    decision: str
-    
-    # How many times the agent has tried to answer
-    iterations: int
-    
-    # Conversation history
+    decision: str  # "retrieve" | "meta" | "clarify"
     chat_history: list[dict]
-    
-    # Whether the retrieval found relevant content
-    retrieval_confidence: float

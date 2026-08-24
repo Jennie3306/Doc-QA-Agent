@@ -5,6 +5,33 @@ import { SpeedInsights } from "@vercel/speed-insights/react"
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 const GRN = "#76B900"
 
+// ── Session isolation ─────────────────────────────────────────
+// One collection per browser. Without this, a single shared collection
+// means one user's upload wipes the document another user is chatting
+// with - which is exactly what happens on a public deployment.
+const SESSION_ID = (() => {
+  try {
+    let id = localStorage.getItem("docagent_session")
+    if (!id) {
+      id = crypto.randomUUID?.() ?? String(Date.now()) + Math.random().toString(36).slice(2)
+      localStorage.setItem("docagent_session", id)
+    }
+    return id
+  } catch {
+    // Safari private mode and some enterprise configs throw on any
+    // localStorage access. Fall back to a per-tab id: the user loses
+    // their document on refresh, but the app loads instead of showing
+    // a blank screen.
+    return "tmp-" + Math.random().toString(36).slice(2)
+  }
+})()
+
+// Single client so the header cannot be forgotten on one call site.
+const api = axios.create({
+  baseURL: API,
+  headers: { "X-Session-Id": SESSION_ID },
+})
+
 // ── Badge component ───────────────────────────────────────────
 function Badge({ decision }) {
   const cfg = {
@@ -99,7 +126,7 @@ function Sidebar({ onUpload, docInfo, onNewChat, onBackHome }) {
     const form = new FormData()
     form.append("file", file)
     try {
-      const res = await axios.post(`${API}/upload`, form)
+      const res = await api.post("/upload", form)
       clearInterval(tick)
       setProgress(100)
       setTimeout(() => {
@@ -276,7 +303,7 @@ function Sidebar({ onUpload, docInfo, onNewChat, onBackHome }) {
 }
 
 // ── Evidence Panel ────────────────────────────────────────────
-function EvidencePanel({ chunks, confidence, trace }) {
+function EvidencePanel({ chunks, chunkScores, confidence, trace }) {
   const [tab, setTab] = useState("citations")
   const tabs = ["citations", "chunks", "trace"]
 
@@ -325,7 +352,7 @@ function EvidencePanel({ chunks, confidence, trace }) {
               </span>
               <span style={{ color: "#6b7260", fontSize: 10,
                              fontFamily: "JetBrains Mono, monospace" }}>
-                {Math.max(0, confidence - i * 0.05).toFixed(2)}
+                {chunkScores?.[i] != null ? chunkScores[i].toFixed(3) : "\u2014"}
               </span>
             </div>
             <div style={{ color: "#c1cab1", fontSize: 13, lineHeight: 1.6 }}>
@@ -623,28 +650,34 @@ export default function App() {
   const [messages,   setMessages]  = useState([])
   const [docInfo,    setDocInfo]   = useState(null)
   const [chunks,     setChunks]    = useState([])
+  const [chunkScores, setScores]   = useState([])
   const [confidence, setConf]      = useState(0)
   const [trace,      setTrace]     = useState([])
 
   useEffect(() => {
-    axios.get(`${API}/status`).then(res => {
+    api.get("/status").then(res => {
       if (res.data.loaded) {
         setDocInfo({ filename: "Previous document", chunk_count: res.data.chunk_count })
       }
     }).catch(() => {})
   }, [])
 
+  const resetEvidence = () => {
+    setChunks([])
+    setScores([])
+    setConf(0)
+    setTrace([])
+  }
+
   const handleUpload = (data) => {
     setDocInfo(data)
     setMessages([])
-    setChunks([])
-    setTrace([])
+    resetEvidence()
   }
 
   const handleNewChat = () => {
     setMessages([])
-    setChunks([])
-    setTrace([])
+    resetEvidence()
   }
 
   const handleSend = async (question, setLoading) => {
@@ -652,10 +685,14 @@ export default function App() {
     setLoading(true)
     try {
       const chatHistory = messages.map(m => ({ role: m.role, content: m.content }))
-      const res = await axios.post(`${API}/chat`, { question, chat_history: chatHistory })
-      const { answer, decision, chunks, confidence, trace } = res.data
+      const res = await api.post("/chat", { question, chat_history: chatHistory })
+      const { answer, decision, chunks, chunk_scores, confidence, trace } = res.data
       setMessages(prev => [...prev, { role: "assistant", content: answer, decision }])
       setChunks(chunks)
+      // Real cosine similarity per chunk, straight from ChromaDB. This
+      // used to be `confidence - i * 0.05`: a made-up linear ramp shown
+      // in a panel whose entire purpose is transparency.
+      setScores(chunk_scores ?? [])
       setConf(confidence)
       setTrace(trace)
     } catch (e) {
@@ -671,8 +708,7 @@ export default function App() {
   const handleBackHome = () => {
     setDocInfo(null)
     setMessages([])
-    setChunks([])
-    setTrace([])
+    resetEvidence()
   }
 
   return (
@@ -682,7 +718,8 @@ export default function App() {
       <Sidebar onUpload={handleUpload} docInfo={docInfo} onNewChat={handleNewChat} />
       <ChatPanel messages={messages} onSend={handleSend} docInfo={docInfo}
                  onBackHome={handleBackHome} />
-      <EvidencePanel chunks={chunks} confidence={confidence} trace={trace} />
+      <EvidencePanel chunks={chunks} chunkScores={chunkScores}
+                     confidence={confidence} trace={trace} />
       <SpeedInsights />
     </div>
   )
